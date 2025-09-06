@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Warehouse Floor Plan Visualizer</title>
+    <script src="https://cdn-tailwindcss.vercel.app/"></script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f8fafc;
+        }
+        
+        /* --- UPDATED FLOOR PLAN LAYOUT --- */
+        .warehouse-floorplan {
+            display: grid;
+            grid-template-columns: minmax(250px, 1fr) 3fr; /* Wider left column */
+            gap: 2rem;
+            background-color: #e5e7eb;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid #d1d5db;
+        }
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 2px dashed #9ca3af;
+            padding-right: 2rem;
+        }
+        .aisle-area {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .aisle-text {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #9ca3af;
+            transform: rotate(-90deg);
+            white-space: nowrap;
+        }
+        
+        /* --- NEW SEARCH RESULT DISPLAY --- */
+        #search-result-display {
+            background-color: white;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            margin-bottom: 2rem;
+        }
+        #search-result-display h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #4b5563;
+        }
+        #search-result-display p {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #1d4ed8;
+            margin-top: 0.5rem;
+        }
+
+        .racking-area {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+        
+        .schematic-rack {
+            display: grid;
+            gap: 5px;
+            padding: 0.5rem;
+            background-color: #f8fafc;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        .grid-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.75rem;
+            border-radius: 3px;
+            min-height: 45px;
+        }
+        .bay-label { color: #475569; }
+        .level-label {
+            min-width: 30px;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            transform: rotate(180deg);
+            color: #475569;
+        }
+        
+        .tray-slot {
+            position: relative;
+            min-width: 50px;
+            background-color: #e2e8f0; /* Empty */
+            border: 1px solid #cbd5e1;
+            box-shadow: inset 1px 1px 3px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .tray-slot:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 1px 1px 3px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        
+        /* A single color for any occupied tray */
+        .tray-slot.occupied { background-color: #3b82f6; border-color: #2563eb; }
+        
+        .tray-display-text {
+            color: white;
+            font-size: 0.65rem;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+            text-align: center;
+        }
+
+        /* --- GLOWING ANIMATION --- */
+        @keyframes glow {
+            0%, 100% { 
+                transform: scale(1);
+                box-shadow: 0 0 8px #fef9c3, 0 0 16px #fef08a, 0 0 24px #fde047, inset 1px 1px 3px rgba(0,0,0,0.1); 
+            }
+            50% { 
+                transform: scale(1.05);
+                box-shadow: 0 0 20px #facc15, 0 0 35px #facc15, 0 0 50px #eab308, inset 1px 1px 3px rgba(0,0,0,0.1); 
+            }
+        }
+        .glowing {
+            animation: glow 1.2s infinite ease-in-out;
+            border-color: #facc15;
+            z-index: 20;
+        }
+
+        /* Tooltip and other styles */
+        .tooltip { visibility:hidden; width:180px; background-color:#334155; color:#fff; text-align:center; border-radius:6px; padding:8px; position:absolute; z-index:20; bottom:115%; left:50%; transform: translateX(-50%); opacity:0; transition:opacity 0.3s; font-size:0.8rem; line-height:1.4; box-shadow:0 2px 10px rgba(0,0,0,0.2); }
+        .tooltip::after { content:""; position:absolute; top:100%; left:50%; margin-left:-5px; border-width:5px; border-style:solid; border-color:#334155 transparent transparent transparent; }
+        .tray-slot:hover .tooltip { visibility:visible; opacity:1; }
+        .notification{position:fixed;top:1rem;right:1rem;padding:1rem;border-radius:0.5rem;color:white;z-index:1000;transform:translateX(120%);transition:transform 0.3s ease;}.notification.show{transform:translateX(0);}.notification.success{background-color:#10b981;}.notification.error{background-color:#ef4444;}.notification.info{background-color:#3b82f6;}.modal{position:fixed;inset:0;background-color:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;visibility:hidden;transition:opacity 0.3s ease, visibility 0.3s ease;}.modal.show{opacity:1;visibility:visible;}.modal-content{background:white;padding:1.5rem;border-radius:0.5rem;width:90%;max-width:500px;max-height:90vh;overflow-y:auto;transform:scale(0.9);transition:transform 0.3s ease;}.modal.show .modal-content{transform:scale(1);}
+    </style>
+</head>
+<body class="bg-gray-100">
+    <header class="bg-white shadow-sm border-b">
+         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center py-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Warehouse Floor Plan</h1>
+                    <p class="text-gray-600 mt-1">Interactive layout based on your architectural drawing</p>
+                </div>
+                <div class="flex space-x-4">
+                    <button id="addProductBtn" class="px-4 py-2 rounded-lg font-medium transition-colors duration-200 bg-blue-600 text-white hover:bg-blue-700">Add Product</button>
+                    <button id="createOrderBtn" class="px-4 py-2 rounded-lg font-medium transition-colors duration-200 bg-gray-200 text-gray-800 hover:bg-gray-300">Create Order</button>
+                    <button id="refreshBtn" class="px-4 py-2 rounded-lg font-medium transition-colors duration-200 bg-emerald-600 text-white hover:bg-emerald-700">Refresh Data</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div id="connectionError" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mx-4 mt-4">
+        <strong>Connection Error:</strong> Unable to connect to backend. Please ensure the server is running.
+    </div>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="mb-4 border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                <button onclick="changeTab('layout')" id="tab-layout" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-blue-500 text-blue-600">Floor Plan</button>
+                <button onclick="changeTab('stats')" id="tab-stats" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Dashboard Stats</button>
+                <button onclick="changeTab('orders')" id="tab-orders" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Orders</button>
+                <button onclick="changeTab('inventory')" id="tab-inventory" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Inventory List</button>
+            </nav>
+        </div>
+
+        <div id="content-layout">
+             <div class="mb-6 flex items-center space-x-4">
+                <h2 class="text-2xl font-semibold text-gray-800">Warehouse Layout</h2>
+                <div class="flex-grow">
+                    <input type="text" id="floorPlanSearch" placeholder="Search by SKU or Name to highlight location..." class="w-full max-w-md px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+             <div id="warehouseContainer" class="warehouse-floorplan">
+                <!-- Floor plan will be generated here by JavaScript -->
+             </div>
+        </div>
+        
+        <div id="content-stats" class="hidden">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                 <div class="bg-white p-6 rounded-lg shadow-sm border flex items-center space-x-4"><div class="bg-blue-100 p-3 rounded-full"><svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg></div><div><p class="text-sm text-gray-500">Total SKUs</p><p id="totalSkus" class="text-2xl font-bold text-gray-900">0</p></div></div>
+                <div class="bg-white p-6 rounded-lg shadow-sm border flex items-center space-x-4"><div class="bg-green-100 p-3 rounded-full"><svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg></div><div><p class="text-sm text-gray-500">Items in Stock</p><p id="itemsInStock" class="text-2xl font-bold text-gray-900">0</p></div></div>
+                <div class="bg-white p-6 rounded-lg shadow-sm border flex items-center space-x-4"><div class="bg-purple-100 p-3 rounded-full"><svg class="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg></div><div><p class="text-sm text-gray-500">Total Orders</p><p id="totalOrders" class="text-2xl font-bold text-gray-900">0</p></div></div>
+                <div class="bg-white p-6 rounded-lg shadow-sm border flex items-center space-x-4"><div class="bg-yellow-100 p-3 rounded-full"><svg class="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div><div><p class="text-sm text-gray-500">Pending Orders</p><p id="pendingOrders" class="text-2xl font-bold text-gray-900">0</p></div></div>
+            </div>
+        </div>
+
+        <div id="content-orders" class="hidden">
+             <h2 class="text-2xl font-semibold text-gray-800 mb-4">Recent Orders</h2>
+             <div id="ordersContainer" class="space-y-4"></div>
+        </div>
+
+        <div id="content-inventory" class="hidden">
+            <div class="flex justify-between items-center mb-4">
+                 <h2 class="text-2xl font-semibold text-gray-800">Full Inventory List</h2>
+                 <input type="text" id="inventorySearch" placeholder="Search by SKU or name..." class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div class="bg-white shadow-sm rounded-lg overflow-hidden border">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th></tr></thead>
+                    <tbody id="inventoryTableBody" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <div id="modal" class="modal">
+         <div class="modal-content">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h3 id="modalTitle" class="text-xl font-semibold">Modal Title</h3>
+                <button id="closeModal" class="text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+    
+    <div id="notification" class="notification">
+        <span id="notificationMessage"></span>
+    </div>
+
+    <script>
+        // --- GLOBAL STATE & CONFIG ---
+        const state = { inventory: [], orders: [], stats: {} };
+        const API_BASE = "http://127.0.0.1:8000/api";
+
+        const WAREHOUSE_CONFIG = {
+            'RACK-1': { bays: 4, levels: 4, sides: 1, depth: 2, label: "RACK-1" },
+            'RACK-2': { bays: 4, levels: 4, sides: 1, depth: 2, label: "RACK-2" },
+            'RACK-3': { bays: 4, levels: 4, sides: 1, depth: 2, label: "RACK-3" },
+            'RACK-4': { bays: 4, levels: 5, sides: 2, depth: 2, label: "RACK-4" },
+            'RACK-5': { bays: 4, levels: 5, sides: 2, depth: 2, label: "RACK-5" },
+            'RACK-6': { bays: 4, levels: 5, sides: 2, depth: 2, label: "RACK-6" },
+            'RACK-7': { bays: 4, levels: 5, sides: 2, depth: 2, label: "RACK-7" },
+            'RACK-8': { bays: 4, levels: 5, sides: 2, depth: 2, label: "RACK-8" },
+            'RACK-9': { bays: 4, levels: 5, sides: 2, depth: 2, label: "RACK-9" },
+            'RACK-10': { bays: 4, levels: 5, sides: 1, depth: 1, label: "RACK-10 " },
+        };
+        
+        // --- ALL FUNCTION DEFINITIONS ---
+
+        function showNotification(message,type="info"){const n=document.getElementById("notification"),m=document.getElementById("notificationMessage");m.textContent=message,n.className=`notification ${type}`,n.classList.add("show"),setTimeout(()=>{n.classList.remove("show")},4e3)}
+        function showModal(title,content){const m=document.getElementById("modal"),t=document.getElementById("modalTitle"),b=document.getElementById("modalBody");t.textContent=title,b.innerHTML=content,m.classList.add("show")}
+        function hideModal(){document.getElementById("modal").classList.remove("show")}
+        async function apiCall(endpoint,options={}){try{const response=await fetch(`${API_BASE}${endpoint}`,{headers:{"Content-Type":"application/json",...options.headers},...options});let data={};const text=await response.text();if(text){try{data=JSON.parse(text)}catch(e){console.error("JSON parse error:",e);throw new Error("Invalid response format")}}if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);return data}catch(error){console.error("API call failed:",error);throw error}}
+
+        async function loadData() {
+            showNotification("Refreshing data...", "info");
+            try {
+                const [inventory, orders, statsData] = await Promise.all([
+                    apiCall("/inventory").catch(e => { console.error("Inventory load failed:", e); return []; }),
+                    apiCall("/orders").catch(e => { console.error("Orders load failed:", e); return []; }),
+                    apiCall("/dashboard-stats").catch(e => { console.error("Stats load failed:", e); return {}; }),
+                ]);
+                state.inventory = Array.isArray(inventory) ? inventory : [];
+                state.orders = Array.isArray(orders) ? orders : [];
+                state.stats = statsData || {};
+                updateUI();
+                document.getElementById("connectionError").classList.add("hidden");
+            } catch (error) {
+                console.error("Failed to load data:", error);
+                document.getElementById("connectionError").classList.remove("hidden");
+                showNotification("Failed to connect to server", "error");
+            }
+        }
+
+        function updateUI() {
+            updateStats();
+            updateOrdersList();
+            updateInventoryTable();
+            renderWarehouseLayout();
+        }
+
+        function updateStats() {
+            document.getElementById("totalSkus").textContent = state.stats.total_skus || 0;
+            document.getElementById("itemsInStock").textContent = state.stats.items_in_stock || 0;
+            document.getElementById("totalOrders").textContent = state.stats.total_orders || 0;
+            document.getElementById("pendingOrders").textContent = state.stats.pending_orders || 0;
+        }
+
+        function renderWarehouseLayout() {
+            const container = document.getElementById('warehouseContainer');
+            // ---> UPDATED HTML STRUCTURE <---
+            container.innerHTML = `
+                <div class="left-panel">
+                    <div id="search-result-display" class="hidden">
+                        <h3>PRODUCT LOCATION</h3>
+                        <p id="search-result-location">-</p>
+                        <strong id="search-result-name">Search for a product</strong>
+                    </div>
+                    <div class="aisle-area"><span class="aisle-text">AISLE</span></div>
+                </div>
+                <div class="racking-area" id="racking-area"></div>`;
+
+            const rackingArea = document.getElementById('racking-area');
+            const inventoryByLocation = state.inventory.reduce((acc, item) => { if (item.location_id) acc[item.location_id] = item; return acc; }, {});
+
+            for (const [moduleKey, config] of Object.entries(WAREHOUSE_CONFIG)) {
+                const moduleWrapper = document.createElement('div');
+                moduleWrapper.innerHTML = `<h3 class="text-md font-bold text-gray-800 mb-2">${config.label}</h3>`;
+                const rackEl = document.createElement('div');
+                rackEl.className = 'schematic-rack';
+                const totalBaysToDisplay = config.bays * config.sides;
+                rackEl.style.gridTemplateColumns = `auto repeat(${totalBaysToDisplay}, 1fr)`;
+                rackEl.innerHTML += `<div class="grid-cell"></div>`;
+                for (let bay = 1; bay <= totalBaysToDisplay; bay++) { rackEl.innerHTML += `<div class="grid-cell bay-label">${String(bay).padStart(2,'0')}</div>`; }
+                for (let level = config.levels; level >= 1; level--) {
+                    const levelChar = String.fromCharCode(65 + config.levels - level);
+                    rackEl.innerHTML += `<div class="grid-cell level-label">${levelChar}</div>`;
+                    for (let visualBay = 1; visualBay <= totalBaysToDisplay; visualBay++) {
+                        const locationId = `${moduleKey}-${levelChar}-${String(visualBay).padStart(2,'0')}`;
+                        const item = inventoryByLocation[locationId];
+                        const trayEl = document.createElement('div');
+                        trayEl.className = `grid-cell tray-slot ${item ? 'occupied' : 'empty'}`;
+                        trayEl.dataset.locationId = locationId;
+                        trayEl.innerHTML = `<span class="tray-display-text">${item ? item.name.substring(0, 10) : ''}</span><span class="tooltip"><strong>Loc:</strong> ${locationId}<br>${item ? `<strong>Name:</strong> ${item.name}<br><strong>SKU:</strong> ${item.sku}<br><strong>Qty:</strong> ${item.quantity}` : 'Empty'}</span>`;
+                        trayEl.onclick = () => showTrayInfo(locationId, item);
+                        rackEl.appendChild(trayEl);
+                    }
+                }
+                moduleWrapper.appendChild(rackEl);
+                rackingArea.appendChild(moduleWrapper);
+            }
+        }
+        
+        // ---> UPDATED SEARCH FUNCTION <---
+        function searchFloorPlan(searchTerm) {
+            const term = searchTerm.toLowerCase();
+            const resultDisplay = document.getElementById('search-result-display');
+            const resultLocation = document.getElementById('search-result-location');
+            const resultName = document.getElementById('search-result-name');
+            let found = false;
+
+            // Clear previous results
+            document.querySelectorAll('.tray-slot').forEach(tray => tray.classList.remove('glowing'));
+
+            if (!term) {
+                resultDisplay.classList.add('hidden');
+                return;
+            }
+
+            for (const item of state.inventory) {
+                if (item.location_id && (item.sku.toLowerCase().includes(term) || item.name.toLowerCase().includes(term))) {
+                    const tray = document.querySelector(`.tray-slot[data-location-id="${item.location_id}"]`);
+                    if (tray) {
+                        tray.classList.add('glowing');
+                        tray.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        
+                        resultLocation.textContent = item.location_id;
+                        resultName.textContent = item.name;
+                        resultDisplay.classList.remove('hidden');
+                        found = true;
+                        break; // Stop after finding the first match
+                    }
+                }
+            }
+
+            if (!found) {
+                resultDisplay.classList.add('hidden');
+            }
+        }
+
+
+        function showTrayInfo(locationId, item) {
+             let content;
+            if (item) {
+                content = `<div class="space-y-3"><p><strong>Location:</strong> <span class="font-mono">${locationId}</span></p><p><strong>SKU:</strong> <span class="font-mono text-blue-600">${item.sku}</span></p><p><strong>Product Name:</strong> ${item.name}</p><p><strong>Quantity:</strong> ${item.quantity}</p></div><div class="flex justify-end mt-6"><button onclick="editProduct('${item.sku}')" class="px-4 py-2 rounded-lg font-medium bg-blue-600 text-white hover:bg-blue-700">Edit Product</button></div>`;
+            } else {
+                content = `<div class="space-y-3"><p><strong>Location:</strong> <span class="font-mono">${locationId}</span></p><p>This tray slot is currently empty.</p><p class="text-sm text-gray-600">You can assign a product to this location by editing an existing product or adding a new one.</p></div>`;
+            }
+            showModal("Tray Information", content);
+        }
+        
+        function addProduct() {
+            const occupiedLocations = new Set(state.inventory.map(p => p.location_id).filter(Boolean));
+
+            let moduleOptionsHtml = '<option value="">Select Module...</option>';
+            for (const moduleKey of Object.keys(WAREHOUSE_CONFIG)) {
+                moduleOptionsHtml += `<option value="${moduleKey}">${WAREHOUSE_CONFIG[moduleKey].label}</option>`;
+            }
+
+            const formHtml = `
+                <form id="addProductForm">
+                    <div class="space-y-4">
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">SKU</label><input type="text" id="sku" required class="w-full px-3 py-2 border border-gray-300 rounded-md"></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Name</label><input type="text" id="name" required class="w-full px-3 py-2 border border-gray-300 rounded-md"></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea id="description" class="w-full px-3 py-2 border border-gray-300 rounded-md h-20"></textarea></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">Initial Quantity</label><input type="number" id="quantity" value="0" min="0" class="w-full px-3 py-2 border border-gray-300 rounded-md"></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Module</label>
+                                <select id="moduleSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md font-mono">${moduleOptionsHtml}</select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                                <select id="locationSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md font-mono" disabled>
+                                    <option value="">Select Module First</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex justify-end space-x-3 pt-4">
+                            <button type="button" onclick="hideModal()" class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300">Cancel</button>
+                            <button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Add Product</button>
+                        </div>
+                    </div>
+                </form>`;
+
+            showModal("Add New Product", formHtml);
+
+            const moduleSelect = document.getElementById('moduleSelect');
+            const locationSelect = document.getElementById('locationSelect');
+
+            const updateLocationOptions = () => {
+                const selectedModuleKey = moduleSelect.value;
+                locationSelect.innerHTML = '<option value="">None</option>';
+                if (!selectedModuleKey) {
+                    locationSelect.disabled = true;
+                    return;
+                }
+                locationSelect.disabled = false;
+                const config = WAREHOUSE_CONFIG[selectedModuleKey];
+                const totalBaysToDisplay = config.bays * config.sides;
+                for (let level = config.levels; level >= 1; level--) {
+                    const levelChar = String.fromCharCode(65 + config.levels - level);
+                    for (let visualBay = 1; visualBay <= totalBaysToDisplay; visualBay++) {
+                        const locationId = `${selectedModuleKey}-${levelChar}-${String(visualBay).padStart(2, '0')}`;
+                        if (!occupiedLocations.has(locationId)) {
+                            const displayText = `${levelChar}-${String(visualBay).padStart(2, '0')}`;
+                            const option = document.createElement('option');
+                            option.value = locationId;
+                            option.textContent = displayText;
+                            locationSelect.appendChild(option);
+                        }
+                    }
+                }
+            };
+            moduleSelect.addEventListener('change', updateLocationOptions);
+            
+            document.getElementById("addProductForm").addEventListener("submit", async e => {
+                e.preventDefault();
+                try {
+                    await apiCall("/products", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            sku: document.getElementById("sku").value,
+                            name: document.getElementById("name").value,
+                            description: document.getElementById("description").value,
+                            quantity: parseInt(document.getElementById("quantity").value),
+                            location_id: document.getElementById("locationSelect").value || null
+                        })
+                    });
+                    hideModal();
+                    showNotification("Product added successfully", "success");
+                    loadData();
+                } catch (err) {
+                    console.error("Create Product failed:", err);
+                    showNotification(err.message, "error");
+                }
+            });
+        }
+        
+        function editProduct(sku){
+            const product = state.inventory.find(p => p.sku === sku);
+            if (!product) return;
+
+            const occupiedLocations = new Set(state.inventory.map(p => p.location_id).filter(Boolean));
+            const currentModule = product.location_id ? product.location_id.split('-')[0] : '';
+
+            let moduleOptionsHtml = '<option value="">Select Module...</option>';
+            for (const moduleKey of Object.keys(WAREHOUSE_CONFIG)) {
+                const isSelected = moduleKey === currentModule ? 'selected' : '';
+                moduleOptionsHtml += `<option value="${moduleKey}" ${isSelected}>${WAREHOUSE_CONFIG[moduleKey].label}</option>`;
+            }
+
+            const formHtml = `
+                <form id="editProductForm">
+                    <div class="space-y-4">
+                        <div class="bg-gray-50 p-3 rounded"><p class="font-medium">${product.sku} - ${product.name}</p></div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                            <input type="number" id="quantity" value="${product.quantity || 0}" min="0" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Module</label>
+                                <select id="moduleSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md font-mono">${moduleOptionsHtml}</select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                                <select id="locationSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md font-mono" disabled>
+                                    <option value="">Select Module First</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex justify-end space-x-3 pt-4">
+                            <button type="button" onclick="hideModal()" class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300">Cancel</button>
+                            <button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Update Product</button>
+                        </div>
+                    </div>
+                </form>`;
+            
+            showModal("Edit Product", formHtml);
+
+            const moduleSelect = document.getElementById('moduleSelect');
+            const locationSelect = document.getElementById('locationSelect');
+
+            const updateLocationOptions = () => {
+                const selectedModuleKey = moduleSelect.value;
+                locationSelect.innerHTML = '<option value="">None</option>';
+                
+                if (!selectedModuleKey) {
+                    locationSelect.disabled = true;
+                    return;
+                }
+
+                locationSelect.disabled = false;
+                const config = WAREHOUSE_CONFIG[selectedModuleKey];
+                const totalBaysToDisplay = config.bays * config.sides;
+
+                for (let level = config.levels; level >= 1; level--) {
+                    const levelChar = String.fromCharCode(65 + config.levels - level);
+                    for (let visualBay = 1; visualBay <= totalBaysToDisplay; visualBay++) {
+                        const locationId = `${selectedModuleKey}-${levelChar}-${String(visualBay).padStart(2,'0')}`;
+                        if (!occupiedLocations.has(locationId) || locationId === product.location_id) {
+                            const displayText = `${levelChar}-${String(visualBay).padStart(2,'0')}`;
+                            const option = document.createElement('option');
+                            option.value = locationId;
+                            option.textContent = displayText;
+                            if (locationId === product.location_id) {
+                                option.selected = true;
+                            }
+                            locationSelect.appendChild(option);
+                        }
+                    }
+                }
+            };
+            
+            moduleSelect.addEventListener('change', updateLocationOptions);
+            if (currentModule) {
+                updateLocationOptions();
+            }
+
+            document.getElementById("editProductForm").addEventListener("submit", async t => {
+                t.preventDefault();
+                try {
+                    await apiCall(`/products/${sku}`, {
+                        method: "PUT",
+                        body: JSON.stringify({
+                            quantity: parseInt(document.getElementById("quantity").value),
+                            location_id: document.getElementById("locationSelect").value || null
+                        })
+                    });
+                    hideModal();
+                    showNotification("Product updated successfully", "success");
+                    loadData();
+                } catch (e) {
+                    showNotification(e.message, "error");
+                }
+            });
+        }
+        
+        function updateInventoryTable(){const t=document.getElementById("inventoryTableBody");t.innerHTML="",state.inventory.forEach(e=>{const o=document.createElement("tr");o.innerHTML=`<td class="px-6 py-4 whitespace-nowrap font-mono text-blue-600">${e.sku||""}</td><td class="px-6 py-4 whitespace-nowrap">${e.name||""}</td><td class="px-6 py-4 whitespace-nowrap">${e.quantity||0}</td><td class="px-6 py-4 whitespace-nowrap font-mono text-gray-500">${e.location_id||"N/A"}</td><td class="px-6 py-4 whitespace-nowrap"><div class="flex space-x-2"><button onclick="editProduct('${e.sku}')" class="text-blue-600 hover:text-blue-800 text-sm">Edit</button><button onclick="deleteProduct('${e.sku}')" class="text-red-600 hover:text-red-800 text-sm">Delete</button></div></td>`,t.appendChild(o)})}
+        
+        function changeTab(t){const e=["layout","stats","orders","inventory"];e.forEach(e=>{document.getElementById(`content-${e}`).classList.add("hidden"),document.getElementById(`tab-${e}`).classList.remove("border-blue-500","text-blue-600"),document.getElementById(`tab-${e}`).classList.add("border-transparent","text-gray-500","hover:text-gray-700","hover:border-gray-300")}),document.getElementById(`content-${t}`).classList.remove("hidden"),document.getElementById(`tab-${t}`).classList.add("border-blue-500","text-blue-600"),document.getElementById(`tab-${t}`).classList.remove("border-transparent","text-gray-500","hover:text-gray-700","hover:border-gray-300")}
+        
+        function updateOrdersList(){const c=document.getElementById("ordersContainer");c.innerHTML="",0===state.orders.length?c.innerHTML='<div class="text-center py-8 text-gray-500"><p>No orders found</p></div>':state.orders.forEach(o=>{const d=document.createElement("div");d.className="border rounded-lg p-4 bg-gray-50";const s="Completed"===o.status?"bg-green-100 text-green-800":"Partial"===o.status?"bg-yellow-100 text-yellow-800":"bg-blue-100 text-blue-800";d.innerHTML=`<div class="flex justify-between items-start mb-2"><div><p class="font-mono font-semibold">${o.id}</p><p class="text-sm text-gray-500">${new Date(o.created_at).toLocaleString()}</p></div><span class="px-2 py-1 text-xs font-medium rounded ${s}">${o.status}</span></div><div class="text-sm"><button onclick="toggleOrderDetails('${o.id}')" class="text-blue-600 hover:text-blue-800">View Details</button>${"Completed"===o.status?`<button onclick="deleteOrder('${o.id}')" class="text-red-600 hover:text-red-800 ml-4">Delete</button>`:""}</div><div id="order-${o.id}" class="hidden mt-3 pt-3 border-t">${renderOrderDetails(o)}</div>`,c.appendChild(d)})}
+        function renderOrderDetails(o){let t="";const e=o.items||{},i=o.picked_items||{};for(const[s,d]of Object.entries(e)){const n=i[s]||0,a=d-n;t+=`<div class="flex justify-between items-center py-2 border-b last:border-b-0"><div><span class="font-mono text-blue-600">${s}</span><span class="text-gray-600 ml-2">Ordered: ${d}, Picked: ${n}</span></div>${a>0?`<div class="flex items-center space-x-2"><input type="number" min="1" max="${a}" value="1" id="pick-${o.id}-${s}" class="w-16 px-2 py-1 border rounded text-center"><button onclick="pickItem('${o.id}', '${s}')" class="px-3 py-1 text-xs rounded-md bg-blue-500 text-white hover:bg-blue-600">Pick</button></div>`:'<span class="text-green-600 text-sm font-medium">Complete</span>'}</div>`}return`<div class="space-y-2">${t}</div>`}
+        function toggleOrderDetails(e){document.getElementById(`order-${e}`).classList.toggle("hidden")}
+        async function deleteProduct(e){if(confirm(`Are you sure you want to delete product ${e}?`))try{await apiCall(`/products/${e}`,{method:"DELETE"}),showNotification("Product deleted successfully","success"),loadData()}catch(e){showNotification(e.message,"error")}}
+        function createOrder(){const e=`<form id="createOrderForm"><div class="space-y-4"><div id="orderItems"><div class="flex justify-between items-center mb-2"><label class="block text-sm font-medium text-gray-700">Order Items</label><button type="button" onclick="addOrderItem()" class="px-3 py-1 text-xs rounded-md bg-gray-200 hover:bg-gray-300">+ Add Item</button></div><div id="orderItemsList" class="space-y-2"></div></div><div class="flex justify-end space-x-3 pt-4"><button type="button" onclick="hideModal()" class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300">Cancel</button><button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Create Order</button></div></div></form>`;showModal("Create Order",e),addOrderItem(),document.getElementById("createOrderForm").addEventListener("submit",async e=>{e.preventDefault();const t={};document.querySelectorAll(".order-item-row").forEach(e=>{const o=e.querySelector(".item-sku").value.trim(),d=parseInt(e.querySelector(".item-qty").value);o&&d>0&&(t[o]=d)});if(0===Object.keys(t).length)return void showNotification("Please add at least one item","error");try{await apiCall("/orders",{method:"POST",body:JSON.stringify({items:t})}),hideModal(),showNotification("Order created successfully","success"),loadData()}catch(err){console.error("Create Order failed:",err),showNotification(err.message,"error")}})}
+        function addOrderItem(){const e=document.getElementById("orderItemsList"),t=document.createElement("div");t.className="order-item-row flex space-x-2",t.innerHTML='<input type="text" placeholder="SKU" class="item-sku w-full px-3 py-2 border border-gray-300 rounded-md flex-1" required><input type="number" placeholder="Qty" class="item-qty w-full px-3 py-2 border border-gray-300 rounded-md w-20" min="1" required><button type="button" onclick="this.parentElement.remove()" class="px-3 py-1 rounded-md bg-red-500 text-white hover:bg-red-600 text-sm">X</button>',e.appendChild(t)}
+        async function pickItem(e,t){const o=document.getElementById(`pick-${e}-${t}`),d=parseInt(o.value);if(d<=0)return void showNotification("Please enter a valid quantity","error");try{await apiCall(`/orders/${e}/pick`,{method:"PUT",body:JSON.stringify({sku:t,quantity:d})}),showNotification("Item picked successfully","success"),loadData()}catch(e){showNotification(e.message,"error")}}
+        async function deleteOrder(e){if(confirm(`Are you sure you want to delete order ${e}?`))try{await apiCall(`/orders/${e}`,{method:"DELETE"}),showNotification("Order deleted successfully","success"),loadData()}catch(e){showNotification(e.message,"error")}}
+        
+        // --- DOMContentLoaded: Attaches all event listeners after the page loads ---
+        document.addEventListener("DOMContentLoaded",async()=>{
+            document.getElementById("addProductBtn").addEventListener("click",addProduct);
+            document.getElementById("createOrderBtn").addEventListener("click",createOrder);
+            document.getElementById("refreshBtn").addEventListener("click", loadData);
+            document.getElementById("closeModal").addEventListener("click",hideModal);
+            document.getElementById("modal").addEventListener("click",e=>{if(e.target.id==="modal")hideModal()});
+            document.getElementById("inventorySearch").addEventListener("input",e=>{const t=e.target.value.toLowerCase();document.querySelectorAll("#inventoryTableBody tr").forEach(e=>{e.style.display=e.textContent.toLowerCase().includes(t)?"":"none"})});
+            document.getElementById('floorPlanSearch').addEventListener('input', (e) => searchFloorPlan(e.target.value));
+
+            const isHealthy=await apiCall("/health").catch(()=>!1);
+            if(isHealthy){
+                await loadData();
+                showNotification("Application initialized successfully","success");
+            } else {
+                document.getElementById("connectionError").classList.remove("hidden");
+                showNotification("Backend server is not running","error");
+            }
+        });
+    </script>
+</body>
+</html>
+
